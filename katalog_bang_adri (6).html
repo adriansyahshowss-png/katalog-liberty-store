@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Katalog - Template (Edit di Google Sheet)</title>
+  <style>
+    :root{--accent:#0ea5a4;--muted:#6b7280;--card-bg:#ffffff;--bg:#f8fafc}
+    *{box-sizing:border-box}
+    body{font-family:Inter,ui-sans-serif,system-ui,Segoe UI,Roboto,Helvetica,Arial; margin:0; background:var(--bg); color:#0f172a}
+    header{background:linear-gradient(90deg, rgba(14,165,164,0.06), rgba(79,70,229,0.02)); padding:18px 20px; display:flex; gap:16px; align-items:center; justify-content:space-between}
+    .brand{display:flex; gap:12px; align-items:center}
+    .logo{width:48px; height:48px; border-radius:10px; background:var(--accent); display:flex; align-items:center; justify-content:center; color:white; font-weight:700}
+    .title{font-weight:700}
+    .controls{display:flex; gap:8px; align-items:center}
+    .search{padding:8px 12px; border-radius:8px; border:1px solid #e6edf3; min-width:260px}
+    select, button{padding:8px 10px; border-radius:8px; border:1px solid #e6edf3; background:white}
+    main{max-width:1100px; margin:22px auto; padding:0 18px}
+    .toolbar{display:flex; gap:12px; align-items:center; margin-bottom:14px}
+    .chips{display:flex; gap:8px; flex-wrap:wrap}
+    .chip{padding:6px 10px; border-radius:999px; background:white; border:1px solid #e6edf3; cursor:pointer}
+    .chip.active{background:var(--accent); color:white; border-color:transparent}
+    .grid{display:grid; grid-template-columns:repeat(4,1fr); gap:14px}
+    @media (max-width:1000px){.grid{grid-template-columns:repeat(3,1fr)}}
+    @media (max-width:720px){.grid{grid-template-columns:repeat(2,1fr)} .search{min-width:140px}}
+    @media (max-width:420px){.grid{grid-template-columns:1fr} .controls{flex-direction:column; align-items:stretch}}
+    .card{background:var(--card-bg); border-radius:12px; padding:12px; box-shadow:0 6px 18px rgba(2,6,23,0.06); display:flex; flex-direction:column; gap:8px}
+    .thumb{width:100%; height:160px; border-radius:8px; object-fit:cover; background:#f1f5f9; cursor:pointer}
+    .pname{font-weight:600; font-size:15px}
+    .price{font-weight:700}
+    .muted{color:var(--muted); font-size:13px}
+    .footer{display:flex; justify-content:space-between; align-items:center; margin-top:8px}
+    .btn{padding:8px 10px; border-radius:10px; cursor:pointer}
+
+    .pagination{display:flex; gap:6px; margin-top:14px; justify-content:center}
+    .page{padding:6px 10px; border-radius:6px; background:white; border:1px solid #e6edf3; cursor:pointer}
+    .page.active{background:#111827;color:white}
+
+    .note{font-size:13px; color:var(--muted)}
+
+    /* Modal detail */
+    .modal {display:none;position:fixed;z-index:10000;left:0;top:0;width:100%;height:100%;overflow:auto;background-color:rgba(0,0,0,0.6)}
+    .modal-content {background:#fff;margin:5% auto;padding:20px;border-radius:10px;max-width:500px;position:relative}
+    .close {position:absolute;top:10px;right:15px;color:#aaa;font-size:28px;font-weight:bold;cursor:pointer}
+    .close:hover {color:#000}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="logo">KA</div>
+      <div>
+        <div class="title">Katalog - Template</div>
+        <div class="note">Edit produk lewat Google Sheet → Publish to web → copy link CSV ke file HTML</div>
+      </div>
+    </div>
+    <div class="controls">
+      <input id="searchInput" class="search" placeholder="Cari produk atau merek..." />
+      <select id="sortSelect"><option value="relevance">Urut: Relevansi</option><option value="price-asc">Harga ↑</option><option value="price-desc">Harga ↓</option></select>
+      <button id="refreshBtn" class="btn">Refresh</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="toolbar">
+      <div class="chips" id="categoryChips"></div>
+      <div style="margin-left:auto; display:flex; gap:8px; align-items:center">
+        <div class="note">Items per page</div>
+        <select id="perPageSelect"><option>12</option><option>24</option><option>48</option></select>
+      </div>
+    </div>
+
+    <section id="productsSection">
+      <div class="grid" id="productsGrid"></div>
+      <div class="pagination" id="pagination"></div>
+    </section>
+  </main>
+
+  <!-- Modal detail produk -->
+  <div id="detailModal" class="modal">
+    <div class="modal-content">
+      <span class="close" onclick="closeModal()">&times;</span>
+      <h2 id="modalTitle"></h2>
+      <img id="modalImage" style="max-width:100%;border-radius:8px;margin:10px 0;">
+      <p id="modalBrand" class="muted"></p>
+      <p id="modalPrice" class="price"></p>
+      <p id="modalDesc"></p>
+    </div>
+  </div>
+
+  <script>
+    const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQyskU1wqZ1lE4IYpCEjzWlPyK33l0UJ_4EYcyRnhSxgl-cvTRxGNYh2J4wZvnC4Ee1AvvzjPotTmnp/pub?gid=0&single=true&output=csv";
+    let rawData = [], filtered = [], currentCategory = 'All', currentPage = 1, perPage = parseInt(document.getElementById('perPageSelect').value,10);
+
+    function openModal(p){
+      document.getElementById('modalTitle').innerText = p.name || '-';
+      document.getElementById('modalImage').src = p.image || '';
+      document.getElementById('modalBrand').innerText = p.brand || '';
+      document.getElementById('modalPrice').innerText = formatPrice(p.price);
+      document.getElementById('modalDesc').innerText = p.description || '';
+      document.getElementById('detailModal').style.display = 'block';
+    }
+    function closeModal(){document.getElementById('detailModal').style.display='none';}
+
+    function formatPrice(v){let n=Number(v||0);try{return new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR'}).format(n)}catch(e){return 'Rp'+n}}
+
+    function renderCard(p){
+      const div=document.createElement('div');div.className='card';
+      const img=document.createElement('img');img.className='thumb';img.alt=p.name||'';img.src=p.image||'';
+      img.onerror=()=>{img.src='data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400"><rect width="100%" height="100%" fill="%23f1f5f9"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="%239ca3af" font-size="20">No Image</text></svg>'};
+      const name=document.createElement('div');name.className='pname';name.textContent=p.name||'-';
+      const brand=document.createElement('div');brand.className='muted';brand.textContent=p.brand?p.brand+' • '+(p.sku||''):(p.sku||'');
+      const price=document.createElement('div');price.className='price';price.textContent=formatPrice(p.price);
+      const desc=document.createElement('div');desc.className='muted';desc.textContent=p.description||'';
+      const footer=document.createElement('div');footer.className='footer';
+      const btn=document.createElement('button');btn.className='btn';btn.textContent='Detail';btn.onclick=()=>openModal(p);
+      footer.appendChild(price);footer.appendChild(btn);
+      div.appendChild(img);div.appendChild(name);div.appendChild(brand);div.appendChild(desc);div.appendChild(footer);
+      return div;
+    }
+
+    function renderProducts(){const grid=document.getElementById('productsGrid');grid.innerHTML='';const start=(currentPage-1)*perPage;const pageItems=filtered.slice(start,start+perPage);if(pageItems.length===0){grid.innerHTML='<div class="note">Tidak ada produk ditemukan.</div>'}pageItems.forEach(p=>grid.appendChild(renderCard(p)));renderPagination();}
+
+    function renderPagination(){const pag=document.getElementById('pagination');pag.innerHTML='';const total=Math.ceil(filtered.length/perPage)||1;const maxShow=7;let start=Math.max(1,currentPage-Math.floor(maxShow/2));let end=Math.min(total,start+maxShow-1);if(end-start<maxShow-1)start=Math.max(1,end-maxShow+1);for(let i=start;i<=end;i++){const b=document.createElement('button');b.className='page'+(i===currentPage?' active':'');b.textContent=i;b.onclick=()=>{currentPage=i;renderProducts()};pag.appendChild(b)}}
+
+    function buildCategories(){const chips=document.getElementById('categoryChips');chips.innerHTML='';const cats=['All',...Array.from(new Set(rawData.map(r=>r.category||'Uncategorized').map(s=>s.trim())))];cats.forEach(c=>{const el=document.createElement('div');el.className='chip'+(c===currentCategory?' active':'');el.textContent=c;el.onclick=()=>{currentCategory=c;currentPage=1;Array.from(chips.children).forEach(x=>x.classList.remove('active'));el.classList.add('active');applyFilters()};chips.appendChild(el)})}
+
+    function applyFilters(){const q=document.getElementById('searchInput').value.trim().toLowerCase();filtered=rawData.filter(p=>{if(currentCategory!=='All'&&(p.category||'').trim()!==currentCategory)return false;if(!q)return true;return[p.name,p.brand,p.category,p.description].join(' ').toLowerCase().includes(q)});const sortVal=document.getElementById('sortSelect').value;if(sortVal==='price-asc')filtered.sort((a,b)=>Number(a.price||0)-Number(b.price||0));else if(sortVal==='price-desc')filtered.sort((a,b)=>Number(b.price||0)-Number(a.price||0));renderProducts()}
+
+    function loadData(){if(!SHEET_CSV_URL||SHEET_CSV_URL.includes('PASTE_YOUR')){document.getElementById('productsGrid').innerHTML='<div class="note">Silakan tempel link CSV di variabel SHEET_CSV_URL.</div>';return;}document.getElementById('productsGrid').innerHTML='<div class="note">Memuat data...</div>';if(typeof Papa==='undefined'){const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js';s.onload=()=>loadData();document.body.appendChild(s);return;}Papa.parse(SHEET_CSV_URL,{download:true,header:true,skipEmptyLines:true,complete:function(results){rawData=results.data.map(r=>({id:r.id||'',name:r.name||r.product||'',price:r.price||r.harga||'0',category:r.category||r.kategori||'Uncategorized',description:r.description||r.deskripsi||'',image:r.image||r.img||r.photo||'',brand:r.brand||r.merek||'',sku:r.sku||'',url:r.url||''}));buildCategories();currentPage=1;perPage=parseInt(document.getElementById('perPageSelect').value,10);applyFilters();},error:function(err){document.getElementById('productsGrid').innerHTML='<div class="note">Gagal memuat CSV: '+(err.message||err)+'</div>'}})}
+
+    document.getElementById('searchInput').addEventListener('input',debounce(()=>{currentPage=1;applyFilters()},300));
+    document.getElementById('sortSelect').addEventListener('change',()=>{currentPage=1;applyFilters()});
+    document.getElementById('perPageSelect').addEventListener('change',()=>{perPage=parseInt(document.getElementById('perPageSelect').value,10);currentPage=1;renderProducts()});
+    document.getElementById('refreshBtn').addEventListener('click',()=>{loadData()});
+
+    function debounce(fn,delay){let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),delay)}}
+
+    window.addEventListener('load',()=>{loadData()});
+  </script>
+</body>
+</html>
